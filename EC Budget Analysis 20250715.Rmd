@@ -1,0 +1,834 @@
+---
+title: "Analysis of El Cerrito's Financial Crisis"
+author: "Ira Sharenow"
+date: "2025-07-15"
+output:
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+library(tidyverse)
+library(readxl)
+library(scales)
+library(flextable)
+library(janitor)
+library(lubridate)
+
+
+
+# Define working path
+project_path <- "D:/Documents/Employment/2025 job search/Project 2025/Budget Project/Budget Transfers Cleaned"
+excel_path <- file.path(project_path, "Composite_2018_2026_R.xlsx")
+calpers_path <- "D:/Documents/Employment/2025 job search/Project 2025/CalPERS Project/Composite All.xlsx"
+
+
+# Load data
+department <- read_xlsx(file.path(project_path, "Composite_2018_2026_R.xlsx"), sheet = "GF_Expen_Dept")
+revenue <- read_xlsx(file.path(project_path, "Composite_2018_2026_R.xlsx"), sheet = "GF_Revenues")
+cpi <- read_xlsx(file.path(project_path, "Composite_2018_2026_R.xlsx"), sheet = "CPI")
+
+# Define facet order
+facet_order <- tibble::tibble(
+  Categories = c("Fire", "Police", "Administration", "Recreation", "Public Works", "Community Development"),
+  facet_order = factor(Categories, levels = c("Fire", "Police", "Administration", "Recreation", "Public Works", "Community Development"))
+)
+
+# Chart formatting settings
+base_layers <- list(
+  geom_line(linewidth = 1.2),
+  geom_point(size = 2),
+  scale_y_continuous(labels = label_dollar(), expand = expansion(mult = c(0.10, 0.10)))
+)
+
+theme_base <- theme_bw() +
+  theme(
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    legend.position = c(0.05, 0.95),
+    legend.justification = c(0, 1),
+    legend.background = element_rect(fill = alpha("white", 0.7), color = NA)
+  )
+
+# Reusable line chart function
+plot_gf_trend <- function(data, y_var, group_var, title, color_labels, color_values, x_breaks = NULL) {
+  if (is.null(x_breaks)) x_breaks <- sort(unique(data$FY))
+  ggplot(data, aes(x = FY, y = {{ y_var }}, color = {{ group_var }})) +
+    base_layers +
+    scale_color_manual(values = color_values, labels = color_labels, name = names(color_labels)) +
+    scale_x_continuous(breaks = x_breaks, labels = label_number(accuracy = 1, big.mark = "")) +
+    labs(title = title, y = "Amount (USD)", x = "Fiscal Year") +
+    theme_base
+}
+```
+
+```{r}
+# Reusable flextable formatting function
+table_calpers_style <- function(tbl, label_map, currency_cols = NULL, percent_cols = NULL, color_col = NULL, color_domain = NULL, caption = NULL, footer = NULL) {
+  fiscal_year_col <- names(label_map)[label_map == "Fiscal Year"]
+
+  ft <- flextable(tbl) %>%
+    set_header_labels(values = label_map)
+
+  if (fiscal_year_col %in% names(tbl)) {
+    if (is.numeric(tbl[[fiscal_year_col]])) {
+      ft <- ft %>% colformat_num(j = fiscal_year_col, digits = 0, big.mark = "")
+    } else {
+      ft <- ft %>% colformat_char(j = fiscal_year_col)
+    }
+  }
+
+  if (!is.null(currency_cols)) {
+    ft <- ft %>% colformat_num(j = currency_cols, digits = 0, big.mark = ",", prefix = "$")
+  }
+  if (!is.null(percent_cols)) {
+    ft <- ft %>% colformat_num(j = percent_cols, digits = 1, suffix = "%")
+  }
+  if (!is.null(color_col) && !is.null(color_domain)) {
+    color_values <- tbl[[color_col]]
+    color_scale <- ifelse(
+      !is.na(color_values) & color_values > 0,
+      scales::col_numeric(palette = c("#FFCCCC", "#990000"), domain = color_domain)(color_values),
+      NA
+    )
+    ft <- ft %>% color(j = color_col, color = color_scale)
+  }
+
+  ft %>%
+    autofit() %>%
+    theme_booktabs() %>%
+    align(align = "right", part = "body") %>%
+    align(align = "center", part = "header") %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+    set_caption(caption) %>%
+    add_footer_lines(footer)
+}
+```
+
+## Historical Background ##
+
+El Cerrito is a small city located near Berkeley, California. It is a very pleasant place to live, but the city has had a long history of financial difficulties combined with an inadequate response from its council.  
+
+In a 2014 council report, the finance director stated that in the recently completed annual independent audit, the auditor concluded that El Cerrito might not be able to continue as a *“going concern”*. That is, the city was in danger of going bankrupt. The item was on the consent calendar and not discussed.  
+
+
+In 2019 there was another “going concern” audit. This time the finance director advised the council that management had proven the auditor wrong and the “going concern was going”. The council found this very reassuring.  
+
+However, in late 2019 the state auditor announced that her office was going to audit El Cerrito due to its overspending. That finally caught the government’s attention.  
+
+There were "going concern" audits in 2017, 2018, 2019, and 2020 without the city council taking corrective action.
+
+Fortunately, for the city a new real property transfer tax went into effect. It was projected to bring in about $2.7 million in new money. However, with historically low interest rates, for a few years, the tax brought in over $4 million per year.   
+
+Homes that are sold cause the value of the home to be reset for property tax collections based on California Prop 13. This also led to a significant increase in revenue.  
+
+There were changes in the sales tax  laws which led to another increase in revenues for El Cerrito.  
+
+Finally, the federal government gave El Cerrito $6.1 million in ARPA money to help those hurt by Covid. El Cerrito’s council chose to put the money in the general fund and had no programs to help those hurt by Covid.  
+
+On the expenditure side, during the Covid years of Fiscal Year 2020 through Fiscal Year 2023 services were cut sharply. Most notably, the senior center was permanently shut down. Also the size of government shrunk as many police officers and others left government service.  
+
+The consequence is that all of the above enabled the city build up its reserves in order to meet minimal standards. However, once the state audit department ended its audit of El Cerrito, management started to identify expensive urgent projects for which there was not enough money. This included buying a new fire engine, other fire department related safety equipment, and fixing the swimming pool. The council has only recently recognized that the city’s $89 million CalPERS Unfunded Accrued Liability (UAL) is *crowding out* services.  
+
+In summary from 2014 to the present, there were strong indications that the city was in financial distress. However, the council has yet to develop a comprehensive plan to solve the city’s financial problems.  
+
+There were tax hikes in 2010, 2014, and 2018. However, even with revenues growing rapidly, expenditures are growing even more rapidly For the next part of this report, I will present tables and charts that clearly demonstrate areas of considerable financial concern. There will be a small amount of text to introduce the tables and graphs.  
+
+The data comes mostly from El Cerrito’s budget documents.
+
+El Cerrito’s Unfunded Accrued Liability (UAL) payments are a primary reason why the city is in financial distress.
+
+```{r}
+# Load and process data
+Funded_History <- read_excel(calpers_path, sheet = "Funded History") %>%
+  clean_names() %>%
+  rename(
+    date = valuation_date,
+    ual = unfunded_accrued_liability_ual
+  ) %>%
+  filter(!is.na(date)) %>%
+  mutate(
+    plan = as.character(plan),
+    ual_value = as.numeric(ual),
+    year = as.numeric(format(as.Date(date), "%Y"))
+  )
+
+# Filter for Classic Safety and assign manual label coordinates
+Funded_History_safety <- Funded_History %>%
+  filter(plan == "Classic Safety") %>%
+  mutate(
+    label = paste0("$", round(ual_value / 1e6, 1), "M"),
+    x_label = case_when(
+      year == 2014 ~ 2014.2,
+      year == 2015 ~ 2015.2,
+      year == 2016 ~ 2016.2,
+      year == 2017 ~ 2017.2,
+      year == 2018 ~ 2018.2,
+      year == 2019 ~ 2019.2,
+      year == 2020 ~ 2019.8,
+      year == 2021 ~ 2020.8,
+      year == 2022 ~ 2022.3,
+      year == 2023 ~ 2023.2
+    ),
+    y_label = case_when(
+      year == 2014 ~ ual_value - 2e6,
+      year == 2015 ~ ual_value - 2e6,
+      year == 2016 ~ ual_value + 1.4e6,
+      year == 2017 ~ ual_value - 2e6,
+      year == 2018 ~ ual_value - 2e6,
+      year == 2019 ~ ual_value - 2e6,
+      year == 2020 ~ ual_value + 1.3e6,
+      year == 2021 ~ ual_value - 1.6e6,
+      year == 2022 ~ ual_value - 1.6e6,
+      year == 2023 ~ ual_value - 2e6
+    )
+  )
+
+# Plot using numeric year axis
+ggplot(Funded_History_safety, aes(x = year, y = ual_value)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_text(
+    aes(x = x_label, y = y_label, label = label),
+    size = 3
+  ) +
+  labs(
+    title = "Unfunded Accrued Liability – Classic Safety Plan\nThe city's safety plan UAL has steadily grown since 2014",
+    x = "Valuation Year", y = "Unfunded Liability"
+  ) +
+  scale_x_continuous(breaks = Funded_History_safety$year) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold")
+  )
+
+
+```
+
+\newpage
+
+An important indicator of financial health is the credit rating. El Cerrito had a long slide from AA- to BBB- but during Covid did improve to BBB.
+
+
+```{r}
+# Load credit rating data
+
+credit_rating <- read_xlsx(excel_path, sheet = "Credit_Rating") %>%
+  clean_names() %>%
+  mutate(
+    date = my(date)  # Parses "9/2023" as "2023-09-01"
+  ) %>%
+  filter(!is.na(date), !is.na(height), !is.na(to)) %>%
+  arrange(date)
+
+# Plot
+# Load and process credit rating data
+credit_rating <- read_xlsx(excel_path, sheet = "Credit_Rating") %>%
+  clean_names() %>%
+  mutate(
+    date = as.Date(paste0("01/", date), format = "%d/%m/%Y"),  # convert "m/yyyy" to Date
+    vjust = case_when(
+      to == "AA-" ~ 1.4,     # down
+      to == "A+" ~ -0.3,      # level
+      to == "BBB" & row_number() == 3 ~ 0.5,  # first BBB
+      to == "BBB" & row_number() == 1 ~ -0.3, 
+      to == "BBB-" ~ -0.3,   # up
+      TRUE ~ 0.5
+    ),
+    hjust = case_when(
+      to == "AA-" ~ -0.5,    # right
+      to == "A+" ~ -0.5,     # right
+      to == "A-" ~ -0.5,
+      to == "BBB" & row_number() == 3 ~ -0.5, # right
+      to == "BBB-" ~ 1.4,    # left
+      to == "BBB" & row_number() == 1 ~ 1.2,
+      TRUE ~ 0
+    )
+  )
+
+# Plot with manual label positions
+# Custom x-axis labels: odd years 2011 to 2023
+odd_years <- seq(2011, 2023, by = 2)
+x_breaks <- as.Date(paste0("01/01/", odd_years), format = "%d/%m/%Y")
+
+# Plot with custom x-axis breaks
+ggplot(credit_rating, aes(x = date, y = height)) +
+  geom_line(color = "steelblue", linewidth = 1.2) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_text(aes(label = to, vjust = vjust, hjust = hjust), size = 3.5) +
+  scale_x_date(
+    breaks = x_breaks,
+    date_labels = "%Y"
+  ) +
+  labs(
+    title = "El Cerrito Credit Rating Over Time",
+    x = "Year",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold")
+  )
+
+```
+
+\newpage
+
+During the Covid years, the city did build up a modest reserve. However, infrastructure needs were often not addressed. One measurement of infrastructure decline is the precipitous fall in the city’s Pavement Condition Index (PCI) even though there is a dedicated tax to pay for road repairs.
+
+```{r}
+# Load PCI data
+pci_data <- read_xlsx(excel_path, sheet = "PCI2")  %>%
+  clean_names() %>%
+  select(year, pci) %>%
+  drop_na()
+
+# Plot
+ggplot(pci_data, aes(x = factor(year), y = pci)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = pci), vjust = -0.5, size = 3.5) +  
+  labs(
+    title = "El Cerrito's Pavement Condition Index",
+    x = "Fiscal Year",
+    y = "PCI Score"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+
+\newpage
+
+El Cerrito’s rate of increased spending has greatly outpaced inflation
+
+
+```{r chart4}
+# Chart 4: Indexed Actual Expenditures vs CPI (2018 = 100) (Sheets: GF_Expen_Dept and CPI)
+indexed_data <- department %>%
+  filter(Budg_or_Act == "Actual", Categories == "Total", Type == "Expenditure") %>%
+  select(FY, Expenditures = Amount) %>%
+  inner_join(cpi, by = "FY") %>%
+  mutate(
+    CPI_index = 100 * CPI / CPI[FY == 2018],
+    Expenditure_index = 100 * Expenditures / Expenditures[FY == 2018]
+  ) %>%
+  pivot_longer(cols = c(CPI_index, Expenditure_index), names_to = "Metric", values_to = "Index")
+
+plot_gf_trend(
+  data = indexed_data,
+  y_var = Index,
+  group_var = Metric,
+  title = "Indexed Actual Expenditures vs CPI (2018 = 100)",
+  color_labels = c("CPI_index" = "CPI (2018 = 100)", "Expenditure_index" = "Expenditures (2018 = 100)"),
+  color_values = c("CPI_index" = "#000000", "Expenditure_index" = "#D7191C")
+)
+```
+
+\newpage
+
+
+
+
+```{r table5}
+# Table 5: Indexed Expenditures vs CPI (2018 base)
+actual_expenditures <- department %>% filter(Budg_or_Act == "Actual", Categories == "Total", Type == "Expenditure") %>% select(FY, Expenditures = Amount)
+cpi_data <- cpi %>% select(FY, CPI)
+
+indexed_data <- actual_expenditures %>%
+  inner_join(cpi_data, by = "FY") %>%
+  arrange(FY) %>%
+  mutate(
+    CPI_index = 100 * CPI / CPI[FY == 2018],
+    Expenditure_index = 100 * Expenditures / Expenditures[FY == 2018]
+  ) %>%
+  select(FY, CPI_index, Expenditure_index) %>%
+  pivot_longer(cols = c(CPI_index, Expenditure_index), names_to = "Metric", values_to = "Index")
+
+indexed_tbl <- indexed_data %>%
+  pivot_wider(names_from = Metric, values_from = Index) %>%
+  arrange(desc(FY))
+
+indexed_ft <- table_calpers_style(
+  tbl = indexed_tbl,
+  label_map = c(FY = "Fiscal Year", Expenditure_index = "Expenditures (2018=100)", CPI_index = "CPI (2018=100)"),
+  caption = "Indexed Actual Expenditures vs CPI (Base Year: 2018)",
+  footer = "Source: El Cerrito Composite Budget File"
+)
+
+indexed_ft
+```
+
+\newpage
+
+
+
+```{r chart5a}
+# Chart 5A: Department Indexed Comparison (2018 = 100) (Sheets: GF_Expen_Dept and CPI)
+dept_indexed <- department %>%
+  filter(Budg_or_Act == "Actual", Type == "Expenditure", Categories %in% facet_order$Categories) %>%
+  left_join(cpi, by = "FY") %>%
+  left_join(facet_order, by = "Categories") %>%
+  group_by(Categories) %>%
+  mutate(
+    Expenditure_index = 100 * Amount / Amount[FY == 2018],
+    CPI_index = 100 * CPI / CPI[FY == 2018]
+  ) %>%
+  ungroup()
+
+plot_gf_trend(
+  data = dept_indexed,
+  y_var = Expenditure_index,
+  group_var = Categories,
+  title = "Indexed Expenditures by Department (2018 = 100)",
+  color_labels = setNames(facet_order$Categories, facet_order$Categories),
+  color_values = setNames(RColorBrewer::brewer.pal(n = 6, name = "Dark2"), facet_order$Categories)
+)
+```
+
+\newpage
+
+
+
+```{r table6}
+# Table 6: Department Indexed Comparison (2018 base)
+dept_indexed <- department %>%
+  filter(Budg_or_Act == "Actual", Type == "Expenditure", Categories %in% facet_order$Categories) %>%
+  left_join(cpi, by = "FY") %>%
+  left_join(facet_order, by = "Categories") %>%
+  group_by(Categories) %>%
+  mutate(
+    Expenditure_index = 100 * Amount / Amount[FY == 2018],
+    CPI_index = 100 * CPI / CPI[FY == 2018]
+  ) %>%
+  ungroup() %>%
+  select(FY, facet_order, Expenditure_index, CPI_index) %>%
+  pivot_longer(cols = c(Expenditure_index, CPI_index), names_to = "Metric", values_to = "Index")
+
+dept_index_tbl <- dept_indexed %>%
+  pivot_wider(names_from = Metric, values_from = Index) %>%
+  arrange(facet_order, desc(FY))
+
+dept_index_ft <- table_calpers_style(
+  tbl = dept_index_tbl,
+  label_map = c(FY = "Fiscal Year", facet_order = "Department", Expenditure_index = "Expenditures (2018=100)", CPI_index = "CPI (2018=100)"),
+  caption = "Indexed Expenditures vs CPI by Department (Base Year: 2018)",
+  footer = "Source: El Cerrito Composite Budget File"
+)
+
+dept_index_ft
+```
+
+\newpage
+
+The rate of growth of expenditures far exceeds the rate of growth of the Consumer Price Index (CPI)
+
+```{r chart5}
+# Chart 5: Indexed Actual Expenditures vs CPI (2023 = 100) (Sheets: GF_Expen_Dept and CPI)
+indexed_data_23_25 <- department %>%
+  filter(Budg_or_Act == "Actual", Categories == "Total", Type == "Expenditure", FY %in% 2023:2025) %>%
+  select(FY, Expenditures = Amount) %>%
+  inner_join(cpi %>% filter(FY %in% 2023:2025), by = "FY") %>%
+  mutate(
+    CPI_index = 100 * CPI / CPI[FY == 2023],
+    Expenditure_index = 100 * Expenditures / Expenditures[FY == 2023]
+  ) %>%
+  pivot_longer(cols = c(CPI_index, Expenditure_index), names_to = "Metric", values_to = "Index")
+
+plot_gf_trend(
+  data = indexed_data_23_25,
+  y_var = Index,
+  group_var = Metric,
+  title = "Indexed Actual Expenditures vs CPI (2023 = 100)",
+  color_labels = c("CPI_index" = "CPI (2023 = 100)", "Expenditure_index" = "Expenditures (2023 = 100)"),
+  color_values = c("CPI_index" = "#000000", "Expenditure_index" = "#E41A1C")
+)
+```
+
+
+\newpage
+
+```{r table5a}
+# Table 5A: Indexed Expenditures vs CPI (2023 base)
+actual_expenditures_23_25 <- department %>% filter(Budg_or_Act == "Actual", Categories == "Total", Type == "Expenditure", FY %in% 2023:2025) %>% select(FY, Expenditures = Amount)
+cpi_23_25 <- cpi %>% filter(FY %in% 2023:2025) %>% select(FY, CPI)
+
+indexed_data_23_25 <- actual_expenditures_23_25 %>%
+  inner_join(cpi_23_25, by = "FY") %>%
+  arrange(FY) %>%
+  mutate(
+    CPI_index = 100 * CPI / CPI[FY == 2023],
+    Expenditure_index = 100 * Expenditures / Expenditures[FY == 2023]
+  ) %>%
+  select(FY, CPI_index, Expenditure_index) %>%
+  pivot_longer(cols = c(CPI_index, Expenditure_index), names_to = "Metric", values_to = "Index")
+
+indexed_tbl_23_25 <- indexed_data_23_25 %>%
+  pivot_wider(names_from = Metric, values_from = Index) %>%
+  arrange(desc(FY))
+
+indexed_ft_23_25 <- table_calpers_style(
+  tbl = indexed_tbl_23_25,
+  label_map = c(FY = "Fiscal Year", Expenditure_index = "Expenditures (2023=100)", CPI_index = "CPI (2023=100)"),
+  caption = "Indexed Actual Expenditures vs CPI (Base Year: 2023)",
+  footer = "Source: El Cerrito Composite Budget File"
+)
+
+indexed_ft_23_25
+```
+
+\newpage
+
+
+Many departments, other than recreation, have increased spending rapidly
+
+```{r chart1a, fig.width=10, fig.height=8.4}
+# Chart 1A: Actual Expenditures by Department – Faceted View (Sheet: GF_Expen_Dept)
+dept_facet_data <- department %>%
+  filter(Categories %in% facet_order$Categories, Type == "Expenditure", Budg_or_Act == "Actual") %>%
+  left_join(facet_order, by = "Categories")
+
+ggplot(dept_facet_data, aes(x = FY, y = Amount)) +
+  geom_line(linewidth = 1.2, color = "#0072B2") +
+  geom_point(size = 2, color = "#0072B2") +
+  facet_wrap(~ facet_order, scales = "free_y", nrow = 3, ncol = 2) +
+  scale_x_continuous(breaks = sort(unique(dept_facet_data$FY)), labels = label_number(big.mark = "", accuracy = 1)) +
+  scale_y_continuous(labels = label_dollar()) +
+  labs(title = "Actual Department Expenditures by Category", x = "Fiscal Year", y = "Amount (USD)") +
+  theme_base +
+  theme(legend.position = "none")
+```
+
+
+
+\newpage
+
+
+Expenditures often exceed revenues.
+
+```{r table4}
+# Revenues vs Expenditures (Actual)
+# Step 1: Prepare the data
+
+# Step 1: Prepare the data and assign background color
+# Table 4: Revenues vs Expenditures (Actual)
+gf_revexp <- inner_join(
+  department %>% filter(Budg_or_Act == "Actual", Categories == "Total") %>% select(FY, Expenditures = Amount),
+  revenue %>% filter(Budg_or_Act == "Actual", Categories == "Total") %>% select(FY, Revenues = Amount),
+  by = "FY"
+) %>%
+  mutate(Difference = Revenues - Expenditures) %>%
+  arrange(desc(FY))
+
+# Create base flextable
+gf_revexp_ft <- table_calpers_style(
+  tbl = gf_revexp,
+  label_map = c(FY = "Fiscal Year", Revenues = "Revenues", Expenditures = "Expenditures", Difference = "Surplus / Deficit"),
+  currency_cols = c("Revenues", "Expenditures", "Difference"),
+  caption = "General Fund Revenues vs Expenditures – Actual",
+  footer = "Source: El Cerrito Composite Budget File"
+)
+
+# Add conditional formatting to the Surplus / Deficit column (Difference)
+gf_revexp_ft <- gf_revexp_ft %>%
+  bold(i = ~Difference < 0, j = "Difference", bold = TRUE) %>%
+  color(i = ~Difference < 0, j = "Difference", color = "black") %>%
+  bg(i = ~Difference < 0, j = "Difference", bg = "#F6C6C6")  # light red
+
+gf_revexp_ft
+
+
+
+
+```
+
+
+\newpage
+
+
+
+Except for the Covid years, General Fund Spend often exceeds General Fund Revenues.
+
+```{r chart3}
+# Chart 3: Actual Revenues vs Expenditures Combined (Sheets: GF_Expen_Dept and GF_Revenues)
+gf_combined <- inner_join(
+  department %>% filter(Budg_or_Act == "Actual", Categories == "Total", Type == "Expenditure") %>% select(FY, Expenditures = Amount),
+  revenue %>% filter(Budg_or_Act == "Actual", Categories == "Total") %>% select(FY, Revenues = Amount),
+  by = "FY"
+) %>%
+  pivot_longer(cols = c(Expenditures, Revenues), names_to = "Type", values_to = "Amount")
+
+plot_gf_trend(
+  data = gf_combined,
+  y_var = Amount,
+  group_var = Type,
+  title = "General Fund: Actual Revenues vs Expenditures",
+  color_labels = c("Expenditures" = "Expenditures", "Revenues" = "Revenues"),
+  color_values = c("Expenditures" = "#D7191C", "Revenues" = "#1A9850")
+)
+```
+
+
+\newpage
+
+
+Actual spending often exceeds initial budget projections
+
+
+```{r chart1}
+# Chart 1: Actual vs Adopted Expenditures (Sheet: GF_Expen_Dept)
+gf_trend_data <- department %>%
+  filter(Categories == "Total", Type == "Expenditure")
+
+plot_gf_trend(
+  data = gf_trend_data,
+  y_var = Amount,
+  group_var = Budg_or_Act,
+  title = "General Fund Expenditures: Actual vs Adopted",
+  color_labels = c("Actual" = "Actual", "Adopted" = "Adopted"),
+  color_values = c("Actual" = "#D55E00", "Adopted" = "#0072B2")
+)
+```
+
+\newpage
+
+
+```{r table1}
+# Table 1: General Fund Expenditures (Total)
+gf_expenditures <- department %>%
+  filter(Categories == "Total", Type == "Expenditure") %>%
+  pivot_wider(names_from = Budg_or_Act, values_from = Amount) %>%
+  mutate(Difference = Actual - Adopted) %>%  # added
+  arrange(desc(FY))
+
+# Create flextable with new column
+gf_expenditures <- department %>%
+  filter(Categories == "Total", Type == "Expenditure") %>%
+  pivot_wider(names_from = Budg_or_Act, values_from = Amount) %>%
+  arrange(desc(FY)) %>%
+  mutate(Difference = Actual - Adopted)
+
+gf_expenditures_ft <- table_calpers_style(
+  tbl = gf_expenditures,
+  label_map = c(FY = "Fiscal Year", Actual = "Actual", Adopted = "Adopted", Difference = "Actual - Adopted"),
+  currency_cols = c("Actual", "Adopted", "Difference"),
+  caption = "General Fund Expenditures – Actual vs Adopted",
+  footer = "Source: El Cerrito Composite Budget File"
+) %>%
+  bg(i = ~Difference > 0, j = "Difference", bg = "#F6C6C6") %>%   # red shading
+  bold(i = ~Difference > 0, j = "Difference")                     # bold font
+
+gf_expenditures_ft
+```
+
+
+\newpage
+
+
+Often departments over spend the budget
+
+```{r table2}
+# Table 2: Department Expenditures
+
+dept_expenditures <- department %>%
+  filter(Categories %in% facet_order$Categories, Type == "Expenditure") %>%
+  mutate(Categories = factor(Categories, levels = facet_order$Categories)) %>%
+  pivot_wider(names_from = Budg_or_Act, values_from = Amount) %>%
+  arrange(Categories, desc(FY)) %>%
+  mutate(Difference = Actual - Adopted)
+
+dept_expenditures_ft <- table_calpers_style(
+  tbl = dept_expenditures,
+  label_map = c(
+    FY = "Fiscal Year", 
+    Categories = "Department", 
+    Actual = "Actual", 
+    Adopted = "Adopted", 
+    Difference = "Actual - Adopted"
+  ),
+  currency_cols = c("Actual", "Adopted", "Difference"),
+  caption = "Department Expenditures – Actual vs Adopted",
+  footer = "Source: El Cerrito Composite Budget File"
+) %>%
+  bg(i = ~Difference > 0, j = "Difference", bg = "#F6C6C6") %>%
+  bold(i = ~Difference > 0, j = "Difference")
+
+dept_expenditures_ft
+
+```
+
+
+\newpage
+
+
+
+
+```{r chart2}
+# Chart 2: Actual vs Adopted Revenues (Sheet: GF_Revenues)
+revenue_trend <- revenue %>%
+  filter(Categories == "Total")
+
+plot_gf_trend(
+  data = revenue_trend,
+  y_var = Amount,
+  group_var = Budg_or_Act,
+  title = "General Fund Revenues: Actual vs Adopted",
+  color_labels = c("Actual" = "Actual", "Adopted" = "Adopted"),
+  color_values = c("Actual" = "#D55E00", "Adopted" = "#0072B2")
+)
+```
+
+
+\newpage
+
+Actual General Fund Revenues often exceed the Adopted amount, but not enough to make up for the excessive spending.
+
+```{r table3}
+# Table 3: General Fund Revenues
+revenue_summary <- revenue %>%
+  filter(Categories == "Total") %>%
+  pivot_wider(names_from = Budg_or_Act, values_from = Amount) %>%
+  arrange(desc(FY))
+
+gf_revenues_ft <- table_calpers_style(
+  tbl = revenue_summary,
+  label_map = c(FY = "Fiscal Year", Actual = "Actual", Adopted = "Adopted"),
+  currency_cols = c("Actual", "Adopted"),
+  caption = "General Fund Revenues – Actual vs Adopted",
+  footer = "Source: El Cerrito Composite Budget File"
+)
+
+gf_revenues_ft
+```
+
+
+
+\newpage
+
+The unassigned reserve amount is an important measure of fiscal health for a city. 
+El Cerrito management predicts that this amount will be declining over the next decade even without many needed expenditures accounted for and also not accounting for the usually overly-optimistic CalPERS assumptions.
+
+
+
+```{r}
+# Load unassigned fund balance data
+unassigned_data <- read_xlsx(excel_path, sheet = "Unassigned_FB") %>%
+  clean_names() %>%
+  select(fy, un_fb) %>%
+  drop_na()
+
+# Plot
+ggplot(unassigned_data, aes(x = fy, y = un_fb)) +
+  geom_line(color = "steelblue", linewidth = 1.2) +
+  geom_point(color = "steelblue", size = 3) +
+  scale_y_continuous(labels = label_dollar(scale = 1e-6, suffix = "M")) +
+  labs(
+    title = "Unassigned Fund Balance Over Time",
+    x = "Fiscal Year",
+    y = "Unassigned Fund Balance"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+
+\newpage
+
+## Appendix
+
+### 2014 Audit: "Going Concern"
+
+On May 6, 2014, Lisa Malek-Zadeh, El Cerrito’s finance director issued a report in conjunction with the Comprehensive Annual Financial Report for 2013, which is the annual audit. She stated that unassigned fund balance was only sufficient to cover approximately 16 days of General Fund expenditures. However, this item was on the consent calendar. The council did not discuss the item. Placing important financial items on the consent calendar has occurred multiple times. The audit that was published in the spring 2020 was also placed on the consent calendar.
+
+\newpage
+
+Here is some general background on reserve issues as mentioned in the independent audits
+
+### Pre-2020: Consistent Underfunding of Reserves
+From FY2017 through FY2019, El Cerrito's General Fund reserve levels were consistently below the stated minimum policy level of 10% of General Fund expenditures. Reserve levels ranged between $200K and $400K, against minimum requirements of approximately $3.4M to $3.7M.
+
+• FY2017: Reserve on p. 47, Expenditures on p. 111 (CAFR 2017)
+• FY2018: Reserve on p. 41, Expenditures on p. 107 (CAFR 2018)
+• FY2019: Reserve on p. 45, Expenditures on p. 117 (ACFR 2019)
+• FY2019: Going concern mentioned on p. 113
+
+### FY2020 Budget: Explicit Recognition of Reserve Deficiency
+The FY2020 ACFR explicitly acknowledges a severe shortfall in General Fund reserves. As of June 30, 2020, reserves totaled $90K—only 0.25% of $36M in expenditures, far below the required 10% minimum. The reserve policy was formally stated this year.
+
+• FY2020: Reserve on p. 50, Policy on p. 50, Expenditures on p. 126 (ACFR 2020)
+
+
+\newpage
+### Unfunded Accrued Liability crowding out services and infrastructure repairs
+The first important service to be cut was the closing of the El Cerrito senior center. It is believed that El Cerrito is the only city in the area without a senior center.<br>
+In the current budget (FY 2026), the council was unable to pay for a fire truck, fire safety equipment, fixing the swimming pool complex, repaving the Ohlone Greenway, repaving the roads, and many other needed infrastructures.<br><br>
+
+Below is an account of how supporting the needs of seniors has been reduced as the pension liability payments grew.<br><br>
+
+Below are some quotes from previous budgets.<br><br>
+
+**FY 2010, page 5**<br>
+Senior Center – With the recent purchase of the Tradeway Furniture Store property by the Redevelopment Agency, that site is viewed as a possible mixed use development opportunity for a new Senior Center, senior housing, and other uses as may be appropriate and economically viable.<br>
+The largest remaining unfunded capital projects are the Public Safety building and new library. During the fiscal year, the City will be reaching out to its residents to better gauge their interest and support for possible funding for these two facilities.<br><br>
+
+**2011, page 9**<br>
+Planning will also continue on a future library and senior center as well as a plan for rebuilding the public safety building.<br><br>
+
+**2012, Page 1**<br>
+While service will remain high, the budget of the City remains very tight and minimal funds are available for continued re-investment in the City infrastructure (with the exception of streets). Most notably, parks and play fields, technology upgrades and aging facilities--Library, Public Safety building and Senior Center--require improvement but the funding is not available. Another area that requires attention is the General Plan. It has been more than a decade since the City reviewed and revised the General Plan to more accurately reflect the current conditions, priorities and vision for the City. Staff has identified a multi-year funding approach to make this much needed revision possible.<br><br>
+
+**2013, page 1**<br>
+As described above, the highest priority for City staff is to maintain the high level of service that El Cerrito is known for, but the budget of the City remains very tight and few funds are available for continued re-investment in the City infrastructure (with the exception of streets). Most notably, parks and play fields and aging facilities such as the Library, Public Safety building and Senior Center require improvement but the funding has not yet been identified.<br><br>
+
+**2014, Page 4**<br>
+Develop & Rehabilitate Public Facilities as Community Focal Points<br>
+Unfortunately, this is an area in which we are lacking of late. After rebuilding our swim center and a new City Hall, there has been no identification of funding for new City facilities. In order to restart our efforts, staff has initiated a survey of residents on their opinions related to new facilities, including the public safety building, library, senior center and other recreational facilities in the City. This was a process similar to that which created our strategy to repair and replace our local streets.<br><br>
+
+**2015–2016, Page 7**<br>
+In preparing this letter, I reviewed budget letters from prior years, and was struck by the fiscal year 2007 budget letter, just eight years ago. In that letter I included such highlights as:<br>
+The Redevelopment Agency is on very sound financial footing as the tax increment in the redevelopment area continues to increase significantly….bond proceeds will be used to reinvest in the infrastructure along San Pablo Avenue, assist businesses with building improvements and technical assistance, fund a new senior center and much of a new library<br><br>
+
+**Page 10**<br>
+OVERALL CHALLENGES<br>
+Because El Cerrito has not yet recovered financially from the Great Recession, a number of challenges exist as we look towards the next two years, including:<br>
+Attracting aging baby boomers to outdated, low functioning senior center<br><br>
+
+**2017–2018, Page 5**<br>
+OVERALL CHALLENGES<br>
+Attracting aging baby boomers to outdated, low functioning senior center<br><br>
+
+**2019–2020, Page 1**<br>
+While our roads and certain facilities continue to be in very good condition, others, such as the senior center and public safety building, need to be rebuilt, and our club houses, playgrounds and parks need upgrading.
+
+\newpage
+
+
+## References
+
+Budgets: https://www.el-cerrito.org/Archive.aspx?AMID=73   
+Independent Audits: https://www.el-cerrito.org/Archive.aspx   
+State Auditor Report: https://information.auditor.ca.gov/reports/2020-803/summary.html   
+State Auditor Report: https://information.auditor.ca.gov/reports/2020-803/cap/index.html    
+
+
+
