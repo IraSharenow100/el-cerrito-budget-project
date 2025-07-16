@@ -1,0 +1,263 @@
+---
+title: "El Cerrito Financial Analysis"
+author: "Ira Sharenow"
+date: "2025-07-15"
+output: html_document
+---
+
+# El Cerrito Budget Analysis (2018–2025)
+
+This project presents a comprehensive financial analysis of the City of El Cerrito, California, from FY 2018 to FY 2025. The analysis focuses on General Fund expenditures, revenues, pension liabilities, and other fiscal indicators to highlight financial trends, challenges, and potential policy actions.
+
+## 🔍 Project Goals
+
+- Track expenditure and revenue trends over time
+- Compare actual vs. adopted budgets
+- Visualize pension-related unfunded liabilities
+- Identify structural imbalances and opportunities for financial reform
+- Present insights clearly to both technical and non-technical audiences
+
+## 📊 Tools Used
+
+- **R / RMarkdown** for data analysis and reporting
+- **Tableau Public** for interactive data visualization
+- **Microsoft Excel** for data preparation
+- **GitHub** for version control and collaboration
+
+## 📈 Key Visualizations (in Tableau)
+
+- General Fund: Actual vs. Adopted Expenditures
+- Indexed Department Expenditures (2018 = 100)
+- El Cerrito's Credit Rating Timeline
+- CalPERS Unfunded Accrued Liability (UAL)
+- Unassigned Fund Balance
+
+👉 [View Tableau Dashboard on Tableau Public] 
+https://public.tableau.com/app/profile/ira.sharenow1281/viz/ECBudgetFINAL/ElCerritoFinances?publish=yes  
+
+## 📁 Key Files
+
+| File | Description |
+|------|-------------|
+| `EC Budget Analysis 20250715.Rmd` | Full R Markdown analysis code |
+| `EC Budget Analysis 20250715.docx` | Final formatted report (Word) |
+| `Composite All.xlsx` | CalPERS data |
+| `Budget Composite_2018_2026_Tableau.xlsx` | Budget data for Tableau |
+
+## 📬 Author
+
+**Ira Sharenow**  
+[LinkedIn](https://www.linkedin.com/in/ira-sharenow/) • [Tableau Public](https://public.tableau.com/app/profile/ira.sharenow)
+
+---
+
+*This project is part of a broader data science portfolio focused on public finance and policy transparency.*
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+library(tidyverse)
+library(readxl)
+library(scales)
+library(flextable)
+library(janitor)
+library(lubridate)
+
+
+
+# Define working path
+project_path <- "D:/Documents/Employment/2025 job search/Project 2025/Budget Project/Budget Transfers Cleaned"
+excel_path <- file.path(project_path, "Composite_2018_2026_R.xlsx")
+calpers_path <- "D:/Documents/Employment/2025 job search/Project 2025/CalPERS Project/Composite All.xlsx"
+
+
+# Load data
+department <- read_xlsx(file.path(project_path, "Composite_2018_2026_R.xlsx"), sheet = "GF_Expen_Dept")
+revenue <- read_xlsx(file.path(project_path, "Composite_2018_2026_R.xlsx"), sheet = "GF_Revenues")
+cpi <- read_xlsx(file.path(project_path, "Composite_2018_2026_R.xlsx"), sheet = "CPI")
+
+# Define facet order
+facet_order <- tibble::tibble(
+  Categories = c("Fire", "Police", "Administration", "Recreation", "Public Works", "Community Development"),
+  facet_order = factor(Categories, levels = c("Fire", "Police", "Administration", "Recreation", "Public Works", "Community Development"))
+)
+
+# Chart formatting settings
+base_layers <- list(
+  geom_line(linewidth = 1.2),
+  geom_point(size = 2),
+  scale_y_continuous(labels = label_dollar(), expand = expansion(mult = c(0.10, 0.10)))
+)
+
+theme_base <- theme_bw() +
+  theme(
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    legend.position = c(0.05, 0.95),
+    legend.justification = c(0, 1),
+    legend.background = element_rect(fill = alpha("white", 0.7), color = NA)
+  )
+
+# Reusable line chart function
+plot_gf_trend <- function(data, y_var, group_var, title, color_labels, color_values, x_breaks = NULL) {
+  if (is.null(x_breaks)) x_breaks <- sort(unique(data$FY))
+  ggplot(data, aes(x = FY, y = {{ y_var }}, color = {{ group_var }})) +
+    base_layers +
+    scale_color_manual(values = color_values, labels = color_labels, name = names(color_labels)) +
+    scale_x_continuous(breaks = x_breaks, labels = label_number(accuracy = 1, big.mark = "")) +
+    labs(title = title, y = "Amount (USD)", x = "Fiscal Year") +
+    theme_base
+}
+```
+
+```{r}
+# Reusable flextable formatting function
+table_calpers_style <- function(tbl, label_map, currency_cols = NULL, percent_cols = NULL, color_col = NULL, color_domain = NULL, caption = NULL, footer = NULL) {
+  fiscal_year_col <- names(label_map)[label_map == "Fiscal Year"]
+
+  ft <- flextable(tbl) %>%
+    set_header_labels(values = label_map)
+
+  if (fiscal_year_col %in% names(tbl)) {
+    if (is.numeric(tbl[[fiscal_year_col]])) {
+      ft <- ft %>% colformat_num(j = fiscal_year_col, digits = 0, big.mark = "")
+    } else {
+      ft <- ft %>% colformat_char(j = fiscal_year_col)
+    }
+  }
+
+  if (!is.null(currency_cols)) {
+    ft <- ft %>% colformat_num(j = currency_cols, digits = 0, big.mark = ",", prefix = "$")
+  }
+  if (!is.null(percent_cols)) {
+    ft <- ft %>% colformat_num(j = percent_cols, digits = 1, suffix = "%")
+  }
+  if (!is.null(color_col) && !is.null(color_domain)) {
+    color_values <- tbl[[color_col]]
+    color_scale <- ifelse(
+      !is.na(color_values) & color_values > 0,
+      scales::col_numeric(palette = c("#FFCCCC", "#990000"), domain = color_domain)(color_values),
+      NA
+    )
+    ft <- ft %>% color(j = color_col, color = color_scale)
+  }
+
+  ft %>%
+    autofit() %>%
+    theme_booktabs() %>%
+    align(align = "right", part = "body") %>%
+    align(align = "center", part = "header") %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+    set_caption(caption) %>%
+    add_footer_lines(footer)
+}
+```
+
+
+```{r}
+# Load and process data
+Funded_History <- read_excel(calpers_path, sheet = "Funded History") %>%
+  clean_names() %>%
+  rename(
+    date = valuation_date,
+    ual = unfunded_accrued_liability_ual
+  ) %>%
+  filter(!is.na(date)) %>%
+  mutate(
+    plan = as.character(plan),
+    ual_value = as.numeric(ual),
+    year = as.numeric(format(as.Date(date), "%Y"))
+  )
+
+# Filter for Classic Safety and assign manual label coordinates
+Funded_History_safety <- Funded_History %>%
+  filter(plan == "Classic Safety") %>%
+  mutate(
+    label = paste0("$", round(ual_value / 1e6, 1), "M"),
+    x_label = case_when(
+      year == 2014 ~ 2014.2,
+      year == 2015 ~ 2015.2,
+      year == 2016 ~ 2016.2,
+      year == 2017 ~ 2017.2,
+      year == 2018 ~ 2018.2,
+      year == 2019 ~ 2019.2,
+      year == 2020 ~ 2019.8,
+      year == 2021 ~ 2020.8,
+      year == 2022 ~ 2022.3,
+      year == 2023 ~ 2023.2
+    ),
+    y_label = case_when(
+      year == 2014 ~ ual_value - 2e6,
+      year == 2015 ~ ual_value - 2e6,
+      year == 2016 ~ ual_value + 1.4e6,
+      year == 2017 ~ ual_value - 2e6,
+      year == 2018 ~ ual_value - 2e6,
+      year == 2019 ~ ual_value - 2e6,
+      year == 2020 ~ ual_value + 1.3e6,
+      year == 2021 ~ ual_value - 1.6e6,
+      year == 2022 ~ ual_value - 1.6e6,
+      year == 2023 ~ ual_value - 2e6
+    )
+  )
+
+# Plot using numeric year axis
+ggplot(Funded_History_safety, aes(x = year, y = ual_value)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_text(
+    aes(x = x_label, y = y_label, label = label),
+    size = 3
+  ) +
+  labs(
+    title = "Unfunded Accrued Liability – Classic Safety Plan\nThe city's safety plan UAL has steadily grown since 2014",
+    x = "Valuation Year", y = "Unfunded Liability"
+  ) +
+  scale_x_continuous(breaks = Funded_History_safety$year) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold")
+  )
+
+
+```
+
+\newpage
+
+
+
+```{r}
+# Load unassigned fund balance data
+unassigned_data <- read_xlsx(excel_path, sheet = "Unassigned_FB") %>%
+  clean_names() %>%
+  select(fy, un_fb) %>%
+  drop_na()
+
+# Plot
+ggplot(unassigned_data, aes(x = fy, y = un_fb)) +
+  geom_line(color = "steelblue", linewidth = 1.2) +
+  geom_point(color = "steelblue", size = 3) +
+  scale_y_continuous(labels = label_dollar(scale = 1e-6, suffix = "M")) +
+  labs(
+    title = "Unassigned Fund Balance Over Time",
+    x = "Fiscal Year",
+    y = "Unassigned Fund Balance"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+
