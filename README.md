@@ -40,7 +40,7 @@ https://public.tableau.com/app/profile/ira.sharenow1281/viz/ECBudgetFINAL/ElCerr
 ## 📬 Author
 
 **Ira Sharenow**  
-[LinkedIn](https://www.linkedin.com/in/ira-sharenow/) • [Tableau Public](https://public.tableau.com/app/profile/ira.sharenow)
+[LinkedIn](https://www.linkedin.com/in/irasharenow/) • [Tableau Public](https://public.tableau.com/app/profile/ira.sharenow)
 
 ---
 
